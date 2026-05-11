@@ -6,16 +6,16 @@
 'use strict';
 
 // ── STATE ──────────────────────────────────────────────────────
-let board        = null;   // chessboard.js instance
-let game         = null;   // chess.js instance
-let stockfish    = null;   // Web Worker
-let sfReady      = false;  // engine ready flag
+let board        = null;   
+let game         = null;   
+let stockfish    = null;   
+let sfReady      = false;  
 let isAnalyzing  = false;
 
 let currentFen  = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-let currentTurn = 'w';     // cached turn for score inversion
+let currentTurn = 'w';     
 
-let topMoves    = {};      // { 1: moveObj, 2: moveObj, 3: moveObj }
+let topMoves    = {};      
 let bestDepth   = 0;
 
 let previewTimer = null;
@@ -44,9 +44,6 @@ function initBoard() {
 
 
 // ── STOCKFISH WORKER (TEK PARÇA ASM.JS) ──────────────────────────
-// WebAssembly (.wasm) dosyası Blob içinde kaybolduğu için, 
-// her şeyi tek bir dosyada barındıran ASM.js versiyonunu çekiyoruz.
-
 const SF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
 
 function initStockfish() {
@@ -61,11 +58,9 @@ function initStockfish() {
     .then(code => {
       document.getElementById('status-text').textContent = 'Başlatılıyor…';
 
-      // Kodu sanal bir Worker içine alıp ateşliyoruz
       const blob = new Blob([code], { type: 'application/javascript' });
       const worker = new Worker(URL.createObjectURL(blob));
 
-      // 15 saniye içinde uyanmazsa işlemi kes
       const readyTimeout = setTimeout(() => {
         if (!sfReady) {
           console.error('[ChessLens] readyok zaman aşımı!');
@@ -76,7 +71,6 @@ function initStockfish() {
       }, 15000);
 
       worker.onmessage = (e) => {
-        // Motor uyandıysa sayacı durdur
         if (e.data === 'readyok') clearTimeout(readyTimeout);
         handleSFMessage(e.data);
       };
@@ -90,7 +84,6 @@ function initStockfish() {
 
       stockfish = worker;
 
-      // Motoru çalışmaya zorla
       stockfish.postMessage('uci');
       stockfish.postMessage('setoption name MultiPV value 3');
       stockfish.postMessage('setoption name Threads value 1');
@@ -104,7 +97,6 @@ function initStockfish() {
     });
 }
 
-// Durum güncelleyici
 function setStatus(state) {
   const dot  = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
@@ -117,20 +109,17 @@ function setStatus(state) {
 
 // ── STOCKFISH MESSAGE HANDLER ─────────────────────────────────
 function handleSFMessage(line) {
-  // Motor hazır
   if (line === 'readyok') {
     sfReady = true;
     setStatus('ready');
     return;
   }
 
-  // Analiz bitti
   if (line.startsWith('bestmove')) {
     finalizeAnalysis();
     return;
   }
 
-  // Canlı bilgi akışı
   if (!line.startsWith('info')) return;
 
   const depth   = extractInt(line, /\bdepth (\d+)/);
@@ -138,11 +127,10 @@ function handleSFMessage(line) {
   const pvMove  = extractStr(line, /\bpv ([a-h][1-8][a-h][1-8][qrbn]?)/);
 
   if (depth === null || multipv === null || !pvMove) return;
-  if (depth < 5) return; // Düşük derinlikleri atla
+  if (depth < 5) return; 
 
   bestDepth = Math.max(bestDepth, depth);
 
-  // Skor hesaplama
   let score = null;
   const cp   = extractInt(line, /\bscore cp (-?\d+)/);
   const mate = extractInt(line, /\bscore mate (-?\d+)/);
@@ -155,7 +143,6 @@ function handleSFMessage(line) {
     score = { type: 'mate', value: normalized };
   }
 
-  // UCI formatını SAN formatına çevir
   const tempGame = new Chess(currentFen);
   const moveObj  = tempGame.move({
     from:      pvMove.slice(0, 2),
@@ -174,7 +161,6 @@ function handleSFMessage(line) {
     depth: depth
   };
 
-  // Arayüzü canlı güncelle
   renderMoves();
   document.getElementById('depth-chip').textContent = `derinlik ${bestDepth}`;
 
@@ -297,4 +283,161 @@ function scoreColorClass(score) {
 // ── EVAL BAR ──────────────────────────────────────────────────
 function updateEvalBar(score) {
   const fill  = document.getElementById('eval-fill');
-  const label = document.
+  const label = document.getElementById('eval-label');
+  const wrap  = document.getElementById('eval-bar-wrap');
+
+  wrap.style.display = 'flex';
+  let pct = 50; 
+
+  if (score.type === 'mate') {
+    pct = score.value > 0 ? 95 : 5;
+    label.textContent = score.value > 0 ? '+Mat' : '−Mat';
+  } else {
+    const t = Math.tanh(score.value / 400);
+    pct = 50 + t * 45; 
+    const val = score.value / 100;
+    const sign = val >= 0 ? '+' : '';
+    label.textContent = `${sign}${val.toFixed(2)}`;
+  }
+
+  fill.style.width = pct.toFixed(1) + '%';
+}
+
+
+// ── PREVIEW MOVE ──────────────────────────────────────────────
+function previewMove(from, to, uci) {
+  clearHighlights();
+  clearTimeout(previewTimer);
+
+  $(`[data-square="${from}"]`).addClass('highlight-from');
+  $(`[data-square="${to}"]`).addClass('highlight-to');
+
+  const tempGame = new Chess(currentFen);
+  const moveObj  = tempGame.move({
+    from, to,
+    promotion: uci[4] || 'q'
+  });
+
+  if (moveObj) {
+    board.position(tempGame.fen(), true);
+    showToast(`${from}→${to} önizlemesi (2sn)`, 'ok');
+  }
+
+  previewTimer = setTimeout(() => {
+    board.position(currentFen, true);
+    clearHighlights();
+  }, 2500);
+}
+
+function clearHighlights() {
+  $('[data-square]').removeClass('highlight-from highlight-to');
+}
+
+
+// ── PGN PARSING & BOARD UPDATE ────────────────────────────────
+function loadAndAnalyze() {
+  const raw = document.getElementById('pgn-input').value.trim();
+  if (!raw) {
+    showToast('PGN alanı boş!', 'error');
+    return;
+  }
+
+  let g = new Chess();
+  let ok = g.load_pgn(raw);
+  if (!ok) {
+    g  = new Chess();
+    ok = g.load_pgn(raw, { sloppy: true });
+  }
+  if (!ok) {
+    g  = new Chess();
+    ok = g.load(raw);
+    if (!ok) {
+      showToast('Geçersiz PGN! Chess.com\'dan doğru kopyala.', 'error');
+      return;
+    }
+  }
+
+  game = g;
+  const fen      = game.fen();
+  const history  = game.history();
+  const halfMove = history.length;
+  const fullMove = Math.ceil(halfMove / 2);
+  const turn     = game.turn(); 
+  const header   = game.header();
+
+  board.resize();
+  board.position(fen, true);
+
+  const turnText = turn === 'w' ? '⬜ Beyaz hamlesi' : '⬛ Siyah hamlesi';
+  document.getElementById('turn-pill').textContent = turnText;
+  document.getElementById('meta-count').textContent =
+    fullMove > 0 ? `${fullMove}. hamle tamamlandı` : '';
+
+  if (header.White && header.Black) {
+    showToast(`${header.White} vs ${header.Black}`, 'ok');
+  }
+
+  startAnalysis(fen, turn);
+}
+
+
+// ── RESET ─────────────────────────────────────────────────────
+function resetApp() {
+  if (stockfish && isAnalyzing) stockfish.postMessage('stop');
+  isAnalyzing = false;
+
+  document.getElementById('pgn-input').value = '';
+  board.position('start');
+  currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+  document.getElementById('turn-pill').textContent  = 'Başlangıç pozisyonu';
+  document.getElementById('meta-count').textContent = '';
+  document.getElementById('moves-container').innerHTML = `
+    <div class="placeholder">
+      <span class="placeholder-icon">⟳</span>
+      <p>PGN yapıştır ve Analiz Et'e bas</p>
+    </div>`;
+  document.getElementById('engine-dot').className = 'engine-dot';
+  document.getElementById('depth-chip').textContent = '—';
+  document.getElementById('eval-bar-wrap').style.display = 'none';
+  document.getElementById('analyze-btn').disabled = false;
+  document.getElementById('analyze-btn').classList.remove('loading');
+
+  topMoves = {};
+  clearHighlights();
+  clearTimeout(previewTimer);
+}
+
+
+// ── TOAST ─────────────────────────────────────────────────────
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = `toast toast-${type || 'ok'} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+
+// ── EVENT BINDINGS ────────────────────────────────────────────
+function bindEvents() {
+  document.getElementById('analyze-btn')
+    .addEventListener('click', loadAndAnalyze);
+
+  document.getElementById('clear-btn')
+    .addEventListener('click', resetApp);
+
+  document.getElementById('pgn-input')
+    .addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') loadAndAnalyze();
+    });
+
+  document.getElementById('flip-btn')
+    .addEventListener('click', () => {
+      board.flip();
+      const btn = document.getElementById('flip-btn');
+      btn.classList.toggle('flipped');
+    });
+}
+
+console.log("KOD EKSİKSİZ YÜKLENDİ");
