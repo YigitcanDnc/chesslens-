@@ -42,74 +42,93 @@ function initBoard() {
 
 
 // ── STOCKFISH WORKER ──────────────────────────────────────────
-//  Stockfish.js kodunu fetch ile indirip Blob Worker olarak çalıştırıyoruz.
-//  İki farklı CDN deniyoruz; her biri için 15sn timeout var.
+//  1. Önce repodaki stockfish.js'i same-origin worker olarak başlatmayı dene
+//  2. Bulamazsa CDN'den fetch+blob yöntemiyle dene (yedek)
 
-const SF_URLS = [
-  'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js',
-  'https://unpkg.com/stockfish.js@10.0.2/stockfish.js'
-];
+const SF_CDN = 'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js';
 
 function initStockfish() {
   setStatus('loading');
-  tryLoadStockfish(0);
-}
+  document.getElementById('status-text').textContent = 'Başlatılıyor…';
 
-function tryLoadStockfish(idx) {
-  if (idx >= SF_URLS.length) {
-    setStatus('error');
-    showToast('Stockfish yüklenemedi — internet bağlantını kontrol et', 'error');
+  // Yöntem 1: Repodaki stockfish.js (same-origin — en güvenilir)
+  const localWorker = tryWorker('./stockfish.js');
+  if (localWorker) {
+    setupWorker(localWorker, 'same-origin', () => {
+      // 5sn içinde yanıt gelmezse CDN yöntemine geç
+      fetchAndBlob();
+    });
     return;
   }
 
-  const url = SF_URLS[idx];
-  const label = idx === 0 ? 'İndiriliyor…' : 'Yedek CDN deneniyor…';
-  document.getElementById('status-text').textContent = label;
+  // Yöntem 2: CDN fetch + blob (fallback)
+  fetchAndBlob();
+}
 
-  fetch(url)
-    .then(res => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.text();
+function tryWorker(url) {
+  try {
+    return new Worker(url);
+  } catch (e) {
+    return null;
+  }
+}
+
+function fetchAndBlob() {
+  document.getElementById('status-text').textContent = 'CDN\'den indiriliyor…';
+  fetch(SF_CDN)
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
     })
     .then(code => {
-      document.getElementById('status-text').textContent = 'Başlatılıyor…';
+      // stockfish.js'in WASM yüklemesini engelliyoruz; pure-JS modunu zorla
+      const patched = code
+        .replace(/WebAssembly\.instantiate/g, 'null&&WebAssembly.instantiate')
+        .replace(/typeof WebAssembly/g, '"undefined"');
 
-      const blob = new Blob([code], { type: 'application/javascript' });
+      const blob   = new Blob([patched], { type: 'application/javascript' });
       const worker = new Worker(URL.createObjectURL(blob));
-
-      // 15 saniye içinde readyok gelmezse bir sonraki CDN'i dene
-      const readyTimeout = setTimeout(() => {
-        if (!sfReady) {
-          console.warn('[ChessLens] readyok gelmedi, sonraki CDN deneniyor:', url);
-          worker.terminate();
-          tryLoadStockfish(idx + 1);
-        }
-      }, 15000);
-
-      worker.onmessage = (e) => {
-        if (e.data === 'readyok') clearTimeout(readyTimeout);
-        handleSFMessage(e.data);
-      };
-
-      worker.onerror = (e) => {
-        clearTimeout(readyTimeout);
-        console.error('[ChessLens] Worker hatası:', e);
-        worker.terminate();
-        tryLoadStockfish(idx + 1);
-      };
-
-      stockfish = worker;
-
-      stockfish.postMessage('uci');
-      stockfish.postMessage('setoption name MultiPV value 3');
-      stockfish.postMessage('setoption name Threads value 1');
-      stockfish.postMessage('setoption name Hash value 32');
-      stockfish.postMessage('isready');
+      setupWorker(worker, 'blob-cdn', () => {
+        setStatus('error');
+        showToast('Motor başlatılamadı. stockfish.js dosyasını repoya ekle.', 'error');
+      });
     })
     .catch(err => {
-      console.error('[ChessLens] Fetch hatası:', err, url);
-      tryLoadStockfish(idx + 1);
+      console.error('[ChessLens] CDN fetch hatası:', err);
+      setStatus('error');
+      showToast('İnternet bağlantısı veya CDN sorunu.', 'error');
     });
+}
+
+function setupWorker(worker, source, onTimeout) {
+  const TIMEOUT_MS = source === 'same-origin' ? 5000 : 20000;
+
+  const timer = setTimeout(() => {
+    if (!sfReady) {
+      console.warn('[ChessLens] readyok zaman aşımı — kaynak:', source);
+      worker.terminate();
+      if (typeof onTimeout === 'function') onTimeout();
+    }
+  }, TIMEOUT_MS);
+
+  worker.onmessage = (e) => {
+    if (e.data === 'readyok') clearTimeout(timer);
+    handleSFMessage(e.data);
+  };
+
+  worker.onerror = (err) => {
+    clearTimeout(timer);
+    console.error('[ChessLens] Worker onerror — kaynak:', source, err);
+    worker.terminate();
+    if (typeof onTimeout === 'function') onTimeout();
+  };
+
+  stockfish = worker;
+  stockfish.postMessage('uci');
+  stockfish.postMessage('setoption name MultiPV value 3');
+  stockfish.postMessage('setoption name Threads value 1');
+  stockfish.postMessage('setoption name Hash value 32');
+  stockfish.postMessage('isready');
 }
 
 // Status helpers
