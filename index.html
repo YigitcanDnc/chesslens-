@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>♟ ChessLens — PGN Analiz</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- chessboard.js CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ── HEADER ── -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">♟</span>
+        <div>
+          <h1 class="logo-title">ChessLens</h1>
+          <p class="logo-sub">Stockfish PGN Analiz Motoru</p>
+        </div>
+      </div>
+      <div class="engine-status" id="engine-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="status-text" id="status-text">Yükleniyor</span>
+      </div>
+    </header>
+
+    <!-- ── MAIN ── -->
+    <main class="main">
+
+      <!-- Board -->
+      <section class="board-section">
+        <div class="board-wrap">
+          <div id="board"></div>
+          <button class="flip-btn" id="flip-btn" title="Tahtayı çevir">
+            <span>⇅</span>
+          </button>
+        </div>
+
+        <!-- Eval Bar -->
+        <div class="eval-bar-wrap" id="eval-bar-wrap" style="display:none">
+          <span class="eval-side eval-black">♚</span>
+          <div class="eval-track">
+            <div class="eval-fill" id="eval-fill"></div>
+          </div>
+          <span class="eval-side eval-white">♔</span>
+          <span class="eval-label" id="eval-label">0.00</span>
+        </div>
+
+        <!-- Position meta -->
+        <div class="position-meta">
+          <span class="meta-pill" id="turn-pill">Başlangıç pozisyonu</span>
+          <span class="meta-count" id="meta-count"></span>
+        </div>
+      </section>
+
+      <!-- Analysis Panel -->
+      <section class="analysis-section">
+        <div class="section-head">
+          <h2 class="section-title">
+            <span class="engine-dot" id="engine-dot"></span>
+            En İyi Hamleler
+          </h2>
+          <span class="depth-chip" id="depth-chip">—</span>
+        </div>
+
+        <div class="moves-container" id="moves-container">
+          <div class="placeholder">
+            <span class="placeholder-icon">⟳</span>
+            <p>PGN yapıştır ve Analiz Et'e bas</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PGN Input -->
+      <section class="input-section">
+        <div class="input-row">
+          <label class="input-label">PGN Yapıştır</label>
+          <button class="ghost-btn" id="clear-btn">Temizle</button>
+        </div>
+
+        <textarea
+          id="pgn-input"
+          class="pgn-area"
+          placeholder="Chess.com'dan kopyaladığın PGN'i buraya yapıştır…&#10;&#10;Örnek:&#10;1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4"
+          spellcheck="false"
+          autocorrect="off"
+          autocapitalize="off"
+        ></textarea>
+
+        <button class="analyze-btn" id="analyze-btn">
+          <span>⚡</span>
+          <span>Analiz Et</span>
+        </button>
+
+        <p class="tip">💡 Ctrl+Enter ile de analiz başlatabilirsin</p>
+      </section>
+
+    </main>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
