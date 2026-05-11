@@ -47,27 +47,42 @@ function initBoard() {
 
 
 // ── STOCKFISH WORKER (LOCAL) ──────────────────────────────────
-// CDN veya dış kaynak yok. Doğrudan kendi GitHub dizinimizdeki dosyayı çağırıyoruz.
+// ── STOCKFISH WORKER (CLOUD BYPASS) ─────────────────────────
 function initStockfish() {
   setStatus('loading');
-  document.getElementById('status-text').textContent = 'Başlatılıyor…';
+  document.getElementById('status-text').textContent = 'Motor Çekiliyor…';
 
-  // Kendi projemizdeki dosyayı çağırıyoruz. (stockfish.js ana dizinde olmalı)
-  const worker = new Worker('stockfish.js');
+  // Eksik dosya ve yerel kısıtlama sorunlarını kökten çözen tünel (Blob):
+  // Bu yöntemle Stockfish doğrudan ana kaynağından %100 eksiksiz indirilir.
+  const workerCode = `
+    try {
+      importScripts('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
+    } catch(e) {
+      postMessage('hata_olustu');
+    }
+  `;
+  
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const worker = new Worker(URL.createObjectURL(blob));
 
   worker.onmessage = (e) => {
-    handleSFMessage(e.data);
+    if (e.data === 'hata_olustu') {
+      setStatus('error');
+      showToast('CDN Motoruna ulaşılamadı!', 'error');
+      return;
+    }
+    handleSFMessage(e.data); // Gelen mesajları mevcut işleyicinize yönlendiriyoruz
   };
 
   worker.onerror = (e) => {
-    console.error('[ChessLens] Worker başlatılamadı:', e);
+    console.error('[ChessLens] Kritik Worker Hatası:', e);
     setStatus('error');
-    showToast('Motor çalışamadı! stockfish.js dosyası depoda eksik veya eklenti engelliyor.', 'error');
+    showToast('Tarayıcı motoru engelledi.', 'error');
   };
 
   stockfish = worker;
 
-  // Motor ayarları
+  // Motoru ateşleyen komutlar
   stockfish.postMessage('uci');
   stockfish.postMessage('setoption name MultiPV value 3');
   stockfish.postMessage('setoption name Threads value 1');
