@@ -42,12 +42,13 @@ function initBoard() {
 
 
 // ── STOCKFISH WORKER ──────────────────────────────────────────
-//  Stockfish.js kodunu fetch ile indirip Blob Worker olarak çalıştırıyoruz.
-//  İki farklı CDN deniyoruz; her biri için 15sn timeout var.
+// CDN'lerden sadece JS dosyasını çekmek yetmez; WASM motorunun da 
+// doğru adresten inmesi için Emscripten locateFile hook'u ekliyoruz.
 
-const SF_URLS = [
-  'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js',
-  'https://unpkg.com/stockfish.js@10.0.2/stockfish.js'
+const SF_CDNS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/',
+  'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/',
+  'https://unpkg.com/stockfish.js@10.0.2/'
 ];
 
 function initStockfish() {
@@ -56,60 +57,75 @@ function initStockfish() {
 }
 
 function tryLoadStockfish(idx) {
-  if (idx >= SF_URLS.length) {
+  if (idx >= SF_CDNS.length) {
     setStatus('error');
     showToast('Stockfish yüklenemedi — internet bağlantını kontrol et', 'error');
     return;
   }
 
-  const url = SF_URLS[idx];
+  const baseUrl = SF_CDNS[idx];
   const label = idx === 0 ? 'İndiriliyor…' : 'Yedek CDN deneniyor…';
   document.getElementById('status-text').textContent = label;
 
-  fetch(url)
-    .then(res => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.text();
-    })
-    .then(code => {
-      document.getElementById('status-text').textContent = 'Başlatılıyor…';
+  // 1. fetch() yerine doğrudan importScripts kullanıyoruz.
+  // 2. Module.locateFile ile WebAssembly (.wasm) dosyalarının 
+  //    Blob URL yerine gerçek CDN adresinden indirilmesini sağlıyoruz.
+  const workerCode = `
+    var Module = {
+      locateFile: function(path) {
+        return '${baseUrl}' + path;
+      }
+    };
+    try {
+      importScripts('${baseUrl}stockfish.js');
+      if (typeof STOCKFISH === "function") {
+        STOCKFISH();
+      }
+    } catch (e) {
+      postMessage('error');
+    }
+  `;
 
-      const blob = new Blob([code], { type: 'application/javascript' });
-      const worker = new Worker(URL.createObjectURL(blob));
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const worker = new Worker(URL.createObjectURL(blob));
 
-      // 15 saniye içinde readyok gelmezse bir sonraki CDN'i dene
-      const readyTimeout = setTimeout(() => {
-        if (!sfReady) {
-          console.warn('[ChessLens] readyok gelmedi, sonraki CDN deneniyor:', url);
-          worker.terminate();
-          tryLoadStockfish(idx + 1);
-        }
-      }, 15000);
-
-      worker.onmessage = (e) => {
-        if (e.data === 'readyok') clearTimeout(readyTimeout);
-        handleSFMessage(e.data);
-      };
-
-      worker.onerror = (e) => {
-        clearTimeout(readyTimeout);
-        console.error('[ChessLens] Worker hatası:', e);
-        worker.terminate();
-        tryLoadStockfish(idx + 1);
-      };
-
-      stockfish = worker;
-
-      stockfish.postMessage('uci');
-      stockfish.postMessage('setoption name MultiPV value 3');
-      stockfish.postMessage('setoption name Threads value 1');
-      stockfish.postMessage('setoption name Hash value 32');
-      stockfish.postMessage('isready');
-    })
-    .catch(err => {
-      console.error('[ChessLens] Fetch hatası:', err, url);
+  // 15 saniye içinde readyok gelmezse bir sonraki CDN'i dene
+  const readyTimeout = setTimeout(() => {
+    if (!sfReady) {
+      console.warn('[ChessLens] readyok gelmedi, sonraki CDN deneniyor:', baseUrl);
+      worker.terminate();
       tryLoadStockfish(idx + 1);
-    });
+    }
+  }, 15000);
+
+  worker.onmessage = (e) => {
+    if (e.data === 'error') {
+      clearTimeout(readyTimeout);
+      worker.terminate();
+      tryLoadStockfish(idx + 1);
+      return;
+    }
+    // readyok geldiyse zamanlayıcıyı iptal et, geri kalanını handleSFMessage halleder
+    if (e.data === 'readyok') {
+      clearTimeout(readyTimeout);
+    }
+    handleSFMessage(e.data);
+  };
+
+  worker.onerror = (e) => {
+    clearTimeout(readyTimeout);
+    console.error('[ChessLens] Worker hatası:', e);
+    worker.terminate();
+    tryLoadStockfish(idx + 1);
+  };
+
+  stockfish = worker;
+
+  stockfish.postMessage('uci');
+  stockfish.postMessage('setoption name MultiPV value 3');
+  stockfish.postMessage('setoption name Threads value 1');
+  stockfish.postMessage('setoption name Hash value 32');
+  stockfish.postMessage('isready');
 }
 
 // Status helpers
