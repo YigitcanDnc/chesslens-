@@ -1,2 +1,0 @@
-importScripts('stockfish.js');
-STOCKFISH();
