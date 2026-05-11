@@ -58,7 +58,9 @@ function initStockfish() {
     .then(code => {
       document.getElementById('status-text').textContent = 'Başlatılıyor…';
 
-      const blob = new Blob([code], { type: 'application/javascript' });
+      // İndirilen kodun sonuna motoru "uyandıran" fonksiyonu ekliyoruz (Kritik Çözüm)
+      const blobCode = code + '\nif (typeof STOCKFISH === "function") { STOCKFISH(); }';
+      const blob = new Blob([blobCode], { type: 'application/javascript' });
       const worker = new Worker(URL.createObjectURL(blob));
 
       const readyTimeout = setTimeout(() => {
@@ -439,5 +441,3 @@ function bindEvents() {
       btn.classList.toggle('flipped');
     });
 }
-
-console.log("KOD EKSİKSİZ YÜKLENDİ");
