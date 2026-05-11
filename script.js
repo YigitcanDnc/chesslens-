@@ -53,7 +53,7 @@ function initStockfish() {
   document.getElementById('status-text').textContent = 'Başlatılıyor…';
 
   // Kendi projemizdeki dosyayı çağırıyoruz. (stockfish.js ana dizinde olmalı)
-  const worker = new Worker('stockfish.js');
+  const worker = new Worker('engine.js');
 
   worker.onmessage = (e) => {
     handleSFMessage(e.data);
