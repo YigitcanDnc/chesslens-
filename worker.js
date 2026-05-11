@@ -1,0 +1,2 @@
+importScripts('stockfish.js');
+STOCKFISH();
